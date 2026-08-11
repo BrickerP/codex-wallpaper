@@ -1,5 +1,4 @@
 # codex-wallpaper
-![Uploading image.png…]()
 
 An unofficial, dependency-free command companion for managing wallpapers through [Codex Dream Skin](https://github.com/Fei-Away/Codex-Dream-Skin). It supports exactly upstream version [`v1.5.12`](https://github.com/Fei-Away/Codex-Dream-Skin/tree/v1.5.12).
 
