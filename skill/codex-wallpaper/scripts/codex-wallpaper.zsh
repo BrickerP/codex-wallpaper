@@ -15,14 +15,15 @@ export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 readonly SCRIPT_PATH="${0:A}"
 readonly SKILL_ROOT="${SCRIPT_PATH:h:h}"
 readonly GALLERY="$SKILL_ROOT/scripts/theme-gallery.mjs"
+readonly VERIFICATION_SUMMARY="$SKILL_ROOT/scripts/verification-summary.mjs"
 readonly OWNER_MARKER="$SKILL_ROOT/.codex-wallpaper-managed"
 readonly COMPANION_VERSION_FILE="$SKILL_ROOT/VERSION"
-readonly EXPECTED_COMPANION_VERSION='0.1.0'
+readonly EXPECTED_COMPANION_VERSION='0.2.0'
 readonly USER_HOME="${HOME:?无法确定用户目录}"
 readonly ENGINE_ROOT="$USER_HOME/.codex/codex-dream-skin-studio"
 readonly ENGINE_SCRIPTS="$ENGINE_ROOT/scripts"
 readonly ENGINE_VERSION_FILE="$ENGINE_ROOT/VERSION"
-readonly EXPECTED_ENGINE_VERSION='1.5.12'
+readonly EXPECTED_ENGINE_VERSION='1.5.20'
 readonly COMMON_MACOS="$ENGINE_SCRIPTS/common-macos.sh"
 readonly STATE_ROOT="$USER_HOME/Library/Application Support/CodexDreamSkinStudio"
 readonly THEMES_ROOT="$STATE_ROOT/themes"
@@ -43,6 +44,7 @@ readonly PORT=9341
 typeset -ga THEME_IDS=()
 typeset -ga THEME_NAMES=()
 typeset -g APPLY_RESULT_NOTE=''
+typeset -g VERIFICATION_NOTE=''
 typeset -g NODE=''
 typeset -g CODEX_BIN=''
 typeset -g CODEX_APP=''
@@ -118,6 +120,7 @@ require_mutation_runtime() {
   discover_upstream_runtime
   [[ -f "$INJECTOR" ]] || die '找不到 Dream Skin 注入器。'
   [[ -f "$GALLERY" && ! -L "$GALLERY" ]] || die '找不到安全的壁纸缩略图选择器。'
+  [[ -f "$VERIFICATION_SUMMARY" && ! -L "$VERIFICATION_SUMMARY" ]] || die '找不到安全的验证摘要程序。'
   [[ -x "$SWITCH_THEME" || -f "$SWITCH_THEME" ]] || die '找不到 Dream Skin 主题切换脚本。'
   [[ -x "$LOAD_IMAGE" || -f "$LOAD_IMAGE" ]] || die '找不到 Dream Skin 图片导入脚本。'
   [[ -d "$THEMES_ROOT" ]] || die '尚未找到 Dream Skin 主题库。'
@@ -248,17 +251,16 @@ if (!Array.isArray(items) || !items.some((item) => {
 }
 
 listener_state() {
-  if validate_cdp_listener; then
+  local code=0
+  validate_cdp_listener || code=$?
+  if (( code == 0 )); then
     print -- '安全可用'
-    return 0
-  fi
-  local code=$?
-  if (( code == 10 )); then
+  elif (( code == 10 )); then
     print -- '未开启'
-    return 10
+  else
+    print -- '不安全（已拒绝）'
   fi
-  print -- '不安全（已拒绝）'
-  return 20
+  return "$code"
 }
 
 switch_without_apply() {
@@ -268,53 +270,46 @@ switch_without_apply() {
   validate_payload "$ACTIVE_THEME"
 }
 
-is_hidden_window_verify() {
-  local verify_code="$1"
-  local verify_output="$2"
-  (( verify_code == 2 )) || return 1
-  print -rn -- "$verify_output" | "$NODE" -e '
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => { input += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const report = JSON.parse(input);
-    const result = report?.targets?.[0]?.result;
-    const checks = result?.checks;
-    const exactIdentity = typeof result?.themeId === "string" && result.themeId.length > 0
-      && typeof result?.revision === "string" && result.revision.length > 0
-      && result.themeId === result.expectedThemeId
-      && result.revision === result.expectedRevision;
-    const hiddenOnly = report?.mode === "verify" && report.targets.length === 1
-      && result?.pass === false && result.installed === true && exactIdentity
-      && result.documentVisibility === "hidden"
-      && checks?.documentVisible === false && checks.windowPass === false
-      && checks.payloadPass === true && checks.structurePass === true
-      && checks.viewportPass === true && checks.fallbackWindowPass === true
-      && checks.nativeWindowPass === false;
-    process.exit(hiddenOnly ? 0 : 1);
-  } catch {
-    process.exit(1);
-  }
-});
-' >/dev/null 2>&1
+summarize_verification() {
+  local verify_code="$1" verify_output="$2" mode="$3"
+  local saved_id="$(/usr/bin/plutil -extract id raw -o - "$ACTIVE_THEME/theme.json" 2>/dev/null || true)"
+  VERIFICATION_NOTE=''
+  [[ -f "$VERIFICATION_SUMMARY" && ! -L "$VERIFICATION_SUMMARY" ]] \
+    || { VERIFICATION_NOTE='验证结果：[invalid-report] 缺少验证摘要程序。'; return 1; }
+  local code=0
+  VERIFICATION_NOTE="$(print -rn -- "$verify_output" | "$NODE" "$VERIFICATION_SUMMARY" \
+    "$verify_code" "$mode" "$EXPECTED_ENGINE_VERSION" "$saved_id" 2>/dev/null)" || code=$?
+  [[ -n "$VERIFICATION_NOTE" ]] || VERIFICATION_NOTE='验证结果：[invalid-report] 无法解析验证结果。'
+  return "$code"
+}
+
+verify_active() {
+  local verify_output verify_code=0
+  verify_output="$("$NODE" "$INJECTOR" --verify --port "$PORT" \
+    --theme-dir "$ACTIVE_THEME" --timeout-ms 10000 2>/dev/null)" || verify_code=$?
+  summarize_verification "$verify_code" "$verify_output" verify
 }
 
 inject_active_once() {
   APPLY_RESULT_NOTE=''
-  "$NODE" "$INJECTOR" --once --port "$PORT" --theme-dir "$ACTIVE_THEME" --timeout-ms 8000 >/dev/null \
-    || die '壁纸注入失败。'
-  local verify_output verify_code
-  if verify_output="$("$NODE" "$INJECTOR" --verify --port "$PORT" \
-    --theme-dir "$ACTIVE_THEME" --timeout-ms 10000 2>&1)"; then
-    return 0
-  else
-    verify_code=$?
+  local inject_output inject_code=0 summary_code=0
+  inject_output="$("$NODE" "$INJECTOR" --once --port "$PORT" --theme-dir "$ACTIVE_THEME" \
+    --timeout-ms 8000 2>/dev/null)" || inject_code=$?
+  summarize_verification "$inject_code" "$inject_output" once || summary_code=$?
+  if (( summary_code != 0 && summary_code != 3 )); then
+    print -u2 -r -- "$VERIFICATION_NOTE"
+    die '壁纸注入未通过校验。'
+    return 1
   fi
-  if is_hidden_window_verify "$verify_code" "$verify_output"; then
-    APPLY_RESULT_NOTE='Codex 当前在后台，切回窗口即可查看。'
+  summary_code=0
+  verify_active || summary_code=$?
+  if (( summary_code == 0 )); then
+    return 0
+  elif (( summary_code == 3 )); then
+    APPLY_RESULT_NOTE='主题身份与结构匹配；DOM 报告 hidden，尚未确认可见效果，请切回窗口检查。'
     return 0
   fi
+  print -u2 -r -- "$VERIFICATION_NOTE"
   die '壁纸已注入，但界面校验未通过。'
 }
 
@@ -608,6 +603,14 @@ show_status() {
   print -- "当前保存主题：$active"
   print -- "热切换端口 $PORT：$cdp"
   show_restart_status
+  if [[ "$actual" == "$EXPECTED_ENGINE_VERSION" && "$cdp" == '安全可用' ]]; then
+    local verification_code=0
+    verify_active || verification_code=$?
+    print -r -- "$VERIFICATION_NOTE"
+    (( verification_code == 0 || verification_code == 3 )) || return 1
+  else
+    print -- '实时主题：未验证（需要受支持的引擎、有效运行时和安全 CDP 端口）。'
+  fi
   (( code != 20 )) || return 1
 }
 

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest `codex-wallpaper` release. The companion currently supports Codex Dream Skin exactly at `v1.5.12`.
+Security fixes are provided for the latest `codex-wallpaper` release. The companion currently supports Codex Dream Skin exactly at `v1.5.20`.
 
 ## Reporting a vulnerability
 

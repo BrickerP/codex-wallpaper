@@ -10,9 +10,13 @@ Use `scripts/codex-wallpaper.zsh`; do not reconstruct Dream Skin commands manual
 ## Dependency
 
 This companion does not vendor Dream Skin. It requires the external engine at
-`~/.codex/codex-dream-skin-studio` and supports exactly engine version `1.5.12`.
+`~/.codex/codex-dream-skin-studio` and supports exactly engine version `1.5.20`.
 `list` and `status` remain read-only when the engine is missing or unsupported;
-all mutations fail closed.
+all mutations fail closed. With a supported engine and safe CDP port, `status`
+performs a fresh read-only verification and shows saved versus live theme IDs and
+revisions. It distinguishes payload mismatch, DOM structure failure, hidden DOM
+documents, and unavailable native-window verification. A hidden DOM document
+does not prove the native window is hidden.
 
 ## Commands
 
