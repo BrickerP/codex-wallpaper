@@ -144,7 +144,7 @@ companion_version_file="$skill_target/VERSION"
 managed_version="$(/bin/cat "$companion_version_file")"
 print '9.9.9-test' > "$companion_version_file"
 assert_failure_contains 'installed mutation gate rejects wrong companion version' \
-  'companion 版本必须精确为 0.1.0' \
+  'companion 版本必须精确为 0.2.0' \
   env HOME="$test_home" "$command_link" apply mutation-gate-probe
 print -r -- "$managed_version" > "$companion_version_file"
 
@@ -152,7 +152,7 @@ print 'wrong marker' > "$skill_target/.codex-wallpaper-managed"
 assert_failure_contains 'installed mutation gate rejects wrong marker' '缺少有效的 managed-owner 标记' \
   env HOME="$test_home" "$command_link" apply mutation-gate-probe
 print 'managed-by-codex-wallpaper' > "$skill_target/.codex-wallpaper-managed"
-assert_failure_contains 'canonical marker reaches engine-version gate' '变更要求 Dream Skin 1.5.12；当前为 缺失' \
+assert_failure_contains 'canonical marker reaches engine-version gate' '变更要求 Dream Skin 1.5.20；当前为 缺失' \
   env HOME="$test_home" "$command_link" apply mutation-gate-probe
 
 print 'stale local change' > "$skill_target/.update-probe"
